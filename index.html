@@ -45,9 +45,7 @@
   </style>
 </head>
 <body class="h-screen w-screen overflow-hidden flex flex-col material-bg-gradient selection:bg-red-900 selection:text-white">
-
   <main class="flex-1 relative overflow-hidden flex flex-col items-center justify-center p-4">
-    
     <section id="homeView" class="w-full max-w-md flex flex-col items-center text-center transition-all duration-300">
       <div class="mb-10 flex flex-col items-center">
         <h1 class="text-6xl md:text-7xl font-black tracking-tight text-red-600 mb-2">
@@ -55,7 +53,6 @@
         </h1>
         <p class="text-red-600 text-xl font-bold tracking-wide">Поисковик ДевНета.</p>
       </div>
-
       <div class="w-full">
         <form id="mainSearchForm" class="relative">
           <div class="search-pill flex items-center px-6 py-3.5 shadow-2xl">
@@ -73,7 +70,6 @@
           </div>
         </form>
       </div>
-
       <div id="resultsList" class="flex-1 overflow-y-auto custom-scrollbar space-y-6 pt-2">
       </div>
     </section>
@@ -92,11 +88,12 @@
         <iframe id="siteFrame" class="w-full h-full border-0"></iframe>
       </div>
     </section>
-
   </main>
 
   <script>
     const loadedSites = {};
+    let isDirectoryScanned = false;
+
     const REPO_OWNER = 'ZefirVSarae';
     const REPO_NAME = 'DevNet';
     const FOLDER_PATH = 'sites';
@@ -106,12 +103,10 @@
     const homeView = document.getElementById('homeView');
     const resultsView = document.getElementById('resultsView');
     const browserView = document.getElementById('browserView');
-    
     const mainSearchForm = document.getElementById('mainSearchForm');
     const mainSearchInput = document.getElementById('mainSearchInput');
     const headerSearchForm = document.getElementById('headerSearchForm');
     const headerSearchInput = document.getElementById('headerSearchInput');
-    
     const resultsList = document.getElementById('resultsList');
     const browserUrlDisplay = document.getElementById('browserUrlDisplay');
     const siteFrame = document.getElementById('siteFrame');
@@ -121,7 +116,6 @@
       homeView.classList.add('hidden');
       resultsView.classList.add('hidden');
       browserView.classList.add('hidden');
-
       if (view === 'home') homeView.classList.remove('hidden');
       if (view === 'results') resultsView.classList.remove('hidden');
       if (view === 'browser') browserView.classList.remove('hidden');
@@ -130,25 +124,17 @@
     function extractMetadata(html, devName) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
-      
       const titleEl = doc.querySelector('title');
       const title = titleEl && titleEl.textContent.trim() ? titleEl.textContent.trim() : devName;
-      
       const metaDesc = doc.querySelector('meta[name="description"]');
       let description = metaDesc ? metaDesc.getAttribute('content') : '';
-
       const bodyText = doc.body ? doc.body.textContent.replace(/\s+/g, ' ').trim() : '';
 
       if (!description) {
         description = bodyText ? bodyText.substring(0, 140) + '...' : devName;
       }
 
-      return { 
-        title, 
-        description, 
-        fullText: bodyText, 
-        content: html 
-      };
+      return { title, description, fullText: bodyText, content: html };
     }
 
     function cleanQueryToDevName(q) {
@@ -176,11 +162,12 @@
           return site;
         }
       } catch (e) {}
-
       return null;
     }
 
     async function scanSitesDirectory() {
+      if (isDirectoryScanned) return;
+
       try {
         const response = await fetch(GITHUB_API_URL);
         if (response.ok) {
@@ -191,7 +178,6 @@
                 const baseName = file.name.slice(0, -5);
                 const devName = `${baseName}.дев`;
                 const fetchUrl = file.download_url || `${RAW_BASE_URL}${file.name}`;
-                
                 try {
                   const siteRes = await fetch(fetchUrl);
                   if (siteRes.ok) {
@@ -203,6 +189,7 @@
               }
             }
           }
+          isDirectoryScanned = true;
         }
       } catch (e) {}
     }
@@ -227,12 +214,10 @@
       const g1 = getNGrams(str1.toLowerCase());
       const g2 = getNGrams(str2.toLowerCase());
       if (!g1.length || !g2.length) return 0;
-
       let intersection = 0;
       g1.forEach(gram => {
         if (g2.includes(gram)) intersection++;
       });
-
       return (2 * intersection) / (g1.length + g2.length);
     }
 
@@ -250,7 +235,6 @@
       if (lowerDevName === lowerQuery || lowerDevName === cleanQueryToDevName(lowerQuery)) {
         score += 1000;
       }
-
       if (lowerTitle === lowerQuery) score += 500;
       if (lowerTitle.includes(lowerQuery)) score += 200;
       if (lowerDesc.includes(lowerQuery)) score += 100;
@@ -295,15 +279,16 @@
       const q = query.trim();
       resultsList.innerHTML = '';
 
-      await scanSitesDirectory();
+      if (!isDirectoryScanned) {
+        await scanSitesDirectory();
+      }
+
       await fetchSiteByPath(q);
 
       const scoredResults = [];
-
       Object.keys(loadedSites).forEach(devName => {
         const site = loadedSites[devName];
         const score = calculateRelevanceScore(q, devName, site);
-
         if (score > 0) {
           scoredResults.push({ devName, site, score });
         }
@@ -336,18 +321,14 @@
 
     async function openSite(devName) {
       let site = loadedSites[devName];
-
       if (!site) {
         site = await fetchSiteByPath(devName);
       }
-
       if (!site) return;
 
       browserUrlDisplay.textContent = `devnet://${devName}`;
-
       const blob = new Blob([site.content], { type: 'text/html' });
       siteFrame.src = URL.createObjectURL(blob);
-
       showView('browser');
     }
 
