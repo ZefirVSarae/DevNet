@@ -97,6 +97,11 @@
 
   <script>
     const loadedSites = {};
+    const REPO_OWNER = 'ZefirVSarae';
+    const REPO_NAME = 'DevNet';
+    const FOLDER_PATH = 'sites';
+    const GITHUB_API_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FOLDER_PATH}`;
+    const RAW_BASE_URL = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/${FOLDER_PATH}/`;
 
     const homeView = document.getElementById('homeView');
     const resultsView = document.getElementById('resultsView');
@@ -160,10 +165,10 @@
     async function fetchSiteByPath(rawQuery) {
       const devName = cleanQueryToDevName(rawQuery);
       const baseName = devName.slice(0, -4);
-      const htmlPath = `sites/${baseName}.html`;
+      const rawUrl = `${RAW_BASE_URL}${baseName}.html`;
 
       try {
-        const response = await fetch(htmlPath);
+        const response = await fetch(rawUrl);
         if (response.ok) {
           const html = await response.text();
           const site = extractMetadata(html, devName);
@@ -177,18 +182,25 @@
 
     async function scanSitesDirectory() {
       try {
-        const response = await fetch('sites/');
+        const response = await fetch(GITHUB_API_URL);
         if (response.ok) {
-          const html = await response.text();
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(html, 'text/html');
-          const links = Array.from(doc.querySelectorAll('a'));
-          
-          for (const link of links) {
-            const href = link.getAttribute('href');
-            if (href && href.endsWith('.html')) {
-              const baseName = href.split('/').pop().slice(0, -5);
-              await fetchSiteByPath(baseName);
+          const files = await response.json();
+          if (Array.isArray(files)) {
+            for (const file of files) {
+              if (file.name && file.name.endsWith('.html')) {
+                const baseName = file.name.slice(0, -5);
+                const devName = `${baseName}.дев`;
+                const fetchUrl = file.download_url || `${RAW_BASE_URL}${file.name}`;
+                
+                try {
+                  const siteRes = await fetch(fetchUrl);
+                  if (siteRes.ok) {
+                    const html = await siteRes.text();
+                    const site = extractMetadata(html, devName);
+                    loadedSites[devName] = site;
+                  }
+                } catch (e) {}
+              }
             }
           }
         }
@@ -271,7 +283,7 @@
 
         let textOccurrences = 0;
         textTokens.forEach(txtToken => {
-          if (txtToken === qToken || txtToken.includes(qToken)) textOccurrences++;
+          if (txtToken === qToken || txtToken.includes(txtToken)) textOccurrences++;
         });
         score += Math.min(textOccurrences * 5, 50);
       });
@@ -333,8 +345,8 @@
 
       browserUrlDisplay.textContent = `devnet://${devName}`;
 
-      const baseName = devName.slice(0, -4);
-      siteFrame.src = `sites/${baseName}.html`;
+      const blob = new Blob([site.content], { type: 'text/html' });
+      siteFrame.src = URL.createObjectURL(blob);
 
       showView('browser');
     }
