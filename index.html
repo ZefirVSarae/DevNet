@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevNet</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      background-color: #000000;
+      color: #FFFFFF;
+    }
+    .material-bg-gradient {
+      background: radial-gradient(circle at center, #1a0003 0%, #050001 70%, #000000 100%);
+    }
+    .search-pill {
+      background-color: #424242;
+      border-radius: 9999px;
+      transition: all 0.2s ease;
+    }
+    .search-pill:focus-within {
+      background-color: #525252;
+      box-shadow: 0 0 15px rgba(255, 0, 0, 0.3);
+    }
+    .result-card {
+      background: transparent;
+      transition: all 0.2s ease;
+    }
+    .result-card:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #000000;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #ff0000;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col material-bg-gradient selection:bg-red-900 selection:text-white">
+
+  <main class="flex-1 relative overflow-hidden flex flex-col items-center justify-center p-4">
+    
+    <section id="homeView" class="w-full max-w-md flex flex-col items-center text-center transition-all duration-300">
+      <div class="mb-10 flex flex-col items-center">
+        <h1 class="text-6xl md:text-7xl font-black tracking-tight text-red-600 mb-2">
+          DevNet
+        </h1>
+        <p class="text-red-600 text-xl font-bold tracking-wide">Поисковик ДевНета.</p>
+      </div>
+
+      <div class="w-full">
+        <form id="mainSearchForm" class="relative">
+          <div class="search-pill flex items-center px-6 py-3.5 shadow-2xl">
+            <input type="text" id="mainSearchInput" placeholder="Запрос..." autocomplete="off" class="w-full bg-transparent text-white text-lg placeholder-gray-400 focus:outline-none font-medium">
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section id="resultsView" class="w-full h-full max-w-2xl flex flex-col hidden transition-all duration-300 pt-6 px-4">
+      <div class="pb-6">
+        <form id="headerSearchForm" class="relative">
+          <div class="search-pill flex items-center px-6 py-3 shadow-lg">
+            <input type="text" id="headerSearchInput" placeholder="Запрос" autocomplete="off" class="w-full bg-transparent text-white text-lg placeholder-gray-400 focus:outline-none font-medium">
+          </div>
+        </form>
+      </div>
+
+      <div id="resultsList" class="flex-1 overflow-y-auto custom-scrollbar space-y-6 pt-2">
+      </div>
+    </section>
+
+    <section id="browserView" class="w-full h-full flex flex-col hidden transition-all duration-300">
+      <div class="w-full px-4 py-2 bg-black border-b border-zinc-800 flex items-center gap-3">
+        <button id="closeBrowserBtn" class="p-1.5 rounded-full hover:bg-zinc-800 text-white transition">
+          <span class="material-icons-outlined text-xl">arrow_back</span>
+        </button>
+        <div class="flex-1 px-4 py-2 rounded-full bg-zinc-900 border border-zinc-800 text-sm font-mono text-red-500 flex items-center gap-2 overflow-hidden">
+          <span class="material-icons-outlined text-sm text-red-500">lock</span>
+          <span id="browserUrlDisplay" class="truncate">devnet://</span>
+        </div>
+      </div>
+      <div class="flex-1 w-full h-full bg-white relative">
+        <iframe id="siteFrame" class="w-full h-full border-0"></iframe>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    const loadedSites = {};
+
+    const homeView = document.getElementById('homeView');
+    const resultsView = document.getElementById('resultsView');
+    const browserView = document.getElementById('browserView');
+    
+    const mainSearchForm = document.getElementById('mainSearchForm');
+    const mainSearchInput = document.getElementById('mainSearchInput');
+    const headerSearchForm = document.getElementById('headerSearchForm');
+    const headerSearchInput = document.getElementById('headerSearchInput');
+    
+    const resultsList = document.getElementById('resultsList');
+    const browserUrlDisplay = document.getElementById('browserUrlDisplay');
+    const siteFrame = document.getElementById('siteFrame');
+    const closeBrowserBtn = document.getElementById('closeBrowserBtn');
+
+    function showView(view) {
+      homeView.classList.add('hidden');
+      resultsView.classList.add('hidden');
+      browserView.classList.add('hidden');
+
+      if (view === 'home') homeView.classList.remove('hidden');
+      if (view === 'results') resultsView.classList.remove('hidden');
+      if (view === 'browser') browserView.classList.remove('hidden');
+    }
+
+    function extractMetadata(html, devName) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      
+      const titleEl = doc.querySelector('title');
+      const title = titleEl && titleEl.textContent.trim() ? titleEl.textContent.trim() : devName;
+      
+      const metaDesc = doc.querySelector('meta[name="description"]');
+      let description = metaDesc ? metaDesc.getAttribute('content') : '';
+
+      const bodyText = doc.body ? doc.body.textContent.replace(/\s+/g, ' ').trim() : '';
+
+      if (!description) {
+        description = bodyText ? bodyText.substring(0, 140) + '...' : devName;
+      }
+
+      return { 
+        title, 
+        description, 
+        fullText: bodyText, 
+        content: html 
+      };
+    }
+
+    function cleanQueryToDevName(q) {
+      let cleaned = q.trim();
+      cleaned = cleaned.replace(/^devnet:\/\//i, '');
+      if (cleaned.endsWith('.html')) {
+        cleaned = cleaned.slice(0, -5) + '.дев';
+      } else if (!cleaned.endsWith('.дев')) {
+        cleaned = cleaned + '.дев';
+      }
+      return cleaned;
+    }
+
+    async function fetchSiteByPath(rawQuery) {
+      const devName = cleanQueryToDevName(rawQuery);
+      const baseName = devName.slice(0, -4);
+      const htmlPath = `sites/${baseName}.html`;
+
+      try {
+        const response = await fetch(htmlPath);
+        if (response.ok) {
+          const html = await response.text();
+          const site = extractMetadata(html, devName);
+          loadedSites[devName] = site;
+          return site;
+        }
+      } catch (e) {}
+
+      return null;
+    }
+
+    async function scanSitesDirectory() {
+      try {
+        const response = await fetch('sites/');
+        if (response.ok) {
+          const html = await response.text();
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, 'text/html');
+          const links = Array.from(doc.querySelectorAll('a'));
+          
+          for (const link of links) {
+            const href = link.getAttribute('href');
+            if (href && href.endsWith('.html')) {
+              const baseName = href.split('/').pop().slice(0, -5);
+              await fetchSiteByPath(baseName);
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    function tokenize(text) {
+      return text.toLowerCase()
+        .replace(/[^\w\d\u0400-\u04FF\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 0);
+    }
+
+    function getNGrams(word, n = 3) {
+      const grams = [];
+      const padded = ` ${word} `;
+      for (let i = 0; i <= padded.length - n; i++) {
+        grams.push(padded.slice(i, i + n));
+      }
+      return grams;
+    }
+
+    function fuzzyMatchScore(str1, str2) {
+      const g1 = getNGrams(str1.toLowerCase());
+      const g2 = getNGrams(str2.toLowerCase());
+      if (!g1.length || !g2.length) return 0;
+
+      let intersection = 0;
+      g1.forEach(gram => {
+        if (g2.includes(gram)) intersection++;
+      });
+
+      return (2 * intersection) / (g1.length + g2.length);
+    }
+
+    function calculateRelevanceScore(query, devName, site) {
+      const queryTokens = tokenize(query);
+      if (!queryTokens.length) return 0;
+
+      let score = 0;
+      const lowerQuery = query.toLowerCase().trim();
+      const lowerDevName = devName.toLowerCase();
+      const lowerTitle = site.title.toLowerCase();
+      const lowerDesc = site.description.toLowerCase();
+      const lowerFullText = site.fullText.toLowerCase();
+
+      if (lowerDevName === lowerQuery || lowerDevName === cleanQueryToDevName(lowerQuery)) {
+        score += 1000;
+      }
+
+      if (lowerTitle === lowerQuery) score += 500;
+      if (lowerTitle.includes(lowerQuery)) score += 200;
+      if (lowerDesc.includes(lowerQuery)) score += 100;
+      if (lowerFullText.includes(lowerQuery)) score += 50;
+
+      const titleTokens = tokenize(site.title);
+      const descTokens = tokenize(site.description);
+      const textTokens = tokenize(site.fullText);
+
+      queryTokens.forEach(qToken => {
+        if (lowerDevName.includes(qToken)) score += 80;
+
+        titleTokens.forEach(tToken => {
+          if (tToken === qToken) score += 60;
+          else if (tToken.includes(qToken) || qToken.includes(tToken)) score += 30;
+          else {
+            const fuzzy = fuzzyMatchScore(qToken, tToken);
+            if (fuzzy > 0.4) score += 15 * fuzzy;
+          }
+        });
+
+        descTokens.forEach(dToken => {
+          if (dToken === qToken) score += 40;
+          else if (dToken.includes(qToken) || qToken.includes(dToken)) score += 20;
+          else {
+            const fuzzy = fuzzyMatchScore(qToken, dToken);
+            if (fuzzy > 0.4) score += 10 * fuzzy;
+          }
+        });
+
+        let textOccurrences = 0;
+        textTokens.forEach(txtToken => {
+          if (txtToken === qToken || txtToken.includes(qToken)) textOccurrences++;
+        });
+        score += Math.min(textOccurrences * 5, 50);
+      });
+
+      return score;
+    }
+
+    async function performSearch(query) {
+      const q = query.trim();
+      resultsList.innerHTML = '';
+
+      await scanSitesDirectory();
+      await fetchSiteByPath(q);
+
+      const scoredResults = [];
+
+      Object.keys(loadedSites).forEach(devName => {
+        const site = loadedSites[devName];
+        const score = calculateRelevanceScore(q, devName, site);
+
+        if (score > 0) {
+          scoredResults.push({ devName, site, score });
+        }
+      });
+
+      scoredResults.sort((a, b) => b.score - a.score);
+
+      if (scoredResults.length === 0) {
+        resultsList.innerHTML = `
+          <div class="py-8 text-zinc-500 text-lg">
+            Ничего не найдено
+          </div>
+        `;
+      } else {
+        scoredResults.forEach(({ devName, site }) => {
+          const card = document.createElement('div');
+          card.className = 'result-card cursor-pointer py-2 px-3 rounded-lg';
+          card.innerHTML = `
+            <div class="text-xs text-red-500 font-mono mb-1">devnet://${devName}</div>
+            <h2 class="text-2xl font-bold text-white mb-1">${site.title}</h2>
+            <p class="text-zinc-300 text-base font-normal">${site.description}</p>
+          `;
+          card.addEventListener('click', () => openSite(devName));
+          resultsList.appendChild(card);
+        });
+      }
+
+      showView('results');
+    }
+
+    async function openSite(devName) {
+      let site = loadedSites[devName];
+
+      if (!site) {
+        site = await fetchSiteByPath(devName);
+      }
+
+      if (!site) return;
+
+      browserUrlDisplay.textContent = `devnet://${devName}`;
+
+      const baseName = devName.slice(0, -4);
+      siteFrame.src = `sites/${baseName}.html`;
+
+      showView('browser');
+    }
+
+    mainSearchForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const val = mainSearchInput.value;
+      if (!val.trim()) return;
+      headerSearchInput.value = val;
+      await performSearch(val);
+    });
+
+    headerSearchForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const val = headerSearchInput.value;
+      if (!val.trim()) return;
+      await performSearch(val);
+    });
+
+    closeBrowserBtn.addEventListener('click', () => {
+      showView('results');
+    });
+
+    scanSitesDirectory();
+  </script>
+</body>
+</html>
