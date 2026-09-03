@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DevNet</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet">
   <style>
@@ -92,7 +92,13 @@
 
   <script>
     const loadedSites = {};
-    const LOCAL_SITES_BASE = './sites/';
+    let isDirectoryScanned = false;
+
+    const REPO_OWNER = 'ZefirVSarae';
+    const REPO_NAME = 'DevNet';
+    const FOLDER_PATH = 'sites';
+    const GITHUB_API_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FOLDER_PATH}`;
+    const RAW_BASE_URL = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/${FOLDER_PATH}/`;
 
     const homeView = document.getElementById('homeView');
     const resultsView = document.getElementById('resultsView');
@@ -133,6 +139,7 @@
         description = bodyText ? bodyText.substring(0, 140) + '...' : devName;
       }
 
+      // Добавляем <base> для корректной подгрузки ассетов (CSS, картинки, скрипты)
       let preparedContent = html;
       if (siteBaseUrl) {
         const baseTag = `<base href="${siteBaseUrl}">`;
@@ -162,35 +169,75 @@
       const devName = cleanQueryToDevName(rawQuery);
       const baseName = devName.slice(0, -4);
 
-      if (loadedSites[devName]) {
-        return loadedSites[devName];
-      }
-
-      const fileUrl = `${LOCAL_SITES_BASE}${baseName}.html`;
+      // Пробуем качать одиночный HTML-файл
+      const fileUrl = `${RAW_BASE_URL}${baseName}.html`;
       try {
         const response = await fetch(fileUrl);
         if (response.ok) {
           const html = await response.text();
-          const site = extractMetadata(html, devName, window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1) + 'sites/');
+          const site = extractMetadata(html, devName, RAW_BASE_URL);
           loadedSites[devName] = site;
           return site;
         }
       } catch (e) {}
 
-      const folderBaseUrl = `${LOCAL_SITES_BASE}${baseName}/`;
+      // Если файла нет, пробуем папку с index.html
+      const folderBaseUrl = `${RAW_BASE_URL}${baseName}/`;
       const folderIndexUrl = `${folderBaseUrl}index.html`;
       try {
         const response = await fetch(folderIndexUrl);
         if (response.ok) {
           const html = await response.text();
-          const absoluteFolderBase = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1) + `sites/${baseName}/`;
-          const site = extractMetadata(html, devName, absoluteFolderBase);
+          const site = extractMetadata(html, devName, folderBaseUrl);
           loadedSites[devName] = site;
           return site;
         }
       } catch (e) {}
 
       return null;
+    }
+
+    async function scanSitesDirectory() {
+      if (isDirectoryScanned) return;
+
+      try {
+        const response = await fetch(GITHUB_API_URL);
+        if (response.ok) {
+          const items = await response.json();
+          if (Array.isArray(items)) {
+            for (const item of items) {
+              // Вариант 1: Одиночный .html файл в папке sites
+              if (item.type === 'file' && item.name.endsWith('.html')) {
+                const baseName = item.name.slice(0, -5);
+                const devName = `${baseName}.дев`;
+                const fetchUrl = item.download_url || `${RAW_BASE_URL}${item.name}`;
+                try {
+                  const siteRes = await fetch(fetchUrl);
+                  if (siteRes.ok) {
+                    const html = await siteRes.text();
+                    loadedSites[devName] = extractMetadata(html, devName, RAW_BASE_URL);
+                  }
+                } catch (e) {}
+              } 
+              // Вариант 2: Папка с сайтом и его ассетами
+              else if (item.type === 'dir') {
+                const baseName = item.name;
+                const devName = `${baseName}.дев`;
+                const folderBaseUrl = `${RAW_BASE_URL}${baseName}/`;
+                const folderIndexUrl = `${folderBaseUrl}index.html`;
+                try {
+                  const siteRes = await fetch(folderIndexUrl);
+                  if (siteRes.ok) {
+                    const html = await siteRes.text();
+                    loadedSites[devName] = extractMetadata(html, devName, folderBaseUrl);
+                  }
+                } catch (e) {}
+              }
+            }
+          }
+          isDirectoryScanned = true;
+        }
+      } catch (e) {}
     }
 
     function tokenize(text) {
@@ -278,6 +325,10 @@
       const q = query.trim();
       resultsList.innerHTML = '';
 
+      if (!isDirectoryScanned) {
+        await scanSitesDirectory();
+      }
+
       await fetchSiteByPath(q);
 
       const scoredResults = [];
@@ -345,6 +396,8 @@
     closeBrowserBtn.addEventListener('click', () => {
       showView('results');
     });
+
+    scanSitesDirectory();
   </script>
 </body>
 </html>
