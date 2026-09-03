@@ -124,10 +124,16 @@
     function extractMetadata(html, devName) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
+      
       const titleEl = doc.querySelector('title');
       const title = titleEl && titleEl.textContent.trim() ? titleEl.textContent.trim() : devName;
       const metaDesc = doc.querySelector('meta[name="description"]');
       let description = metaDesc ? metaDesc.getAttribute('content') : '';
+
+      // Вырезаем технический мусор из парсера перед сборкой текста
+      const garbageElements = doc.querySelectorAll('script, style, noscript, template, svg, button');
+      garbageElements.forEach(el => el.remove());
+
       const bodyText = doc.body ? doc.body.textContent.replace(/\s+/g, ' ').trim() : '';
 
       if (!description) {
@@ -233,7 +239,6 @@
       const lowerDesc = site.description.toLowerCase();
       const lowerFullText = site.fullText.toLowerCase();
 
-      // Точные совпадения по домену и названию
       if (lowerDevName === lowerQuery || lowerDevName === `${lowerQuery}.дев`) {
         score += 1000;
       }
