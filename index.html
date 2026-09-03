@@ -121,7 +121,7 @@
       if (view === 'browser') browserView.classList.remove('hidden');
     }
 
-    function extractMetadata(html, devName) {
+    function extractMetadata(html, devName, siteBaseUrl) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
       
@@ -130,7 +130,6 @@
       const metaDesc = doc.querySelector('meta[name="description"]');
       let description = metaDesc ? metaDesc.getAttribute('content') : '';
 
-      // Вырезаем технический мусор из парсера перед сборкой текста
       const garbageElements = doc.querySelectorAll('script, style, noscript, template, svg, button');
       garbageElements.forEach(el => el.remove());
 
@@ -140,7 +139,18 @@
         description = bodyText ? bodyText.substring(0, 140) + '...' : devName;
       }
 
-      return { title, description, fullText: bodyText, content: html };
+      // Добавляем <base> для корректной подгрузки ассетов (CSS, картинки, скрипты)
+      let preparedContent = html;
+      if (siteBaseUrl) {
+        const baseTag = `<base href="${siteBaseUrl}">`;
+        if (preparedContent.includes('<head>')) {
+          preparedContent = preparedContent.replace('<head>', `<head>${baseTag}`);
+        } else {
+          preparedContent = baseTag + preparedContent;
+        }
+      }
+
+      return { title, description, fullText: bodyText, content: preparedContent, siteBaseUrl };
     }
 
     function cleanQueryToDevName(q) {
@@ -158,17 +168,32 @@
     async function fetchSiteByPath(rawQuery) {
       const devName = cleanQueryToDevName(rawQuery);
       const baseName = devName.slice(0, -4);
-      const rawUrl = `${RAW_BASE_URL}${baseName}.html`;
 
+      // Пробуем качать одиночный HTML-файл
+      const fileUrl = `${RAW_BASE_URL}${baseName}.html`;
       try {
-        const response = await fetch(rawUrl);
+        const response = await fetch(fileUrl);
         if (response.ok) {
           const html = await response.text();
-          const site = extractMetadata(html, devName);
+          const site = extractMetadata(html, devName, RAW_BASE_URL);
           loadedSites[devName] = site;
           return site;
         }
       } catch (e) {}
+
+      // Если файла нет, пробуем папку с index.html
+      const folderBaseUrl = `${RAW_BASE_URL}${baseName}/`;
+      const folderIndexUrl = `${folderBaseUrl}index.html`;
+      try {
+        const response = await fetch(folderIndexUrl);
+        if (response.ok) {
+          const html = await response.text();
+          const site = extractMetadata(html, devName, folderBaseUrl);
+          loadedSites[devName] = site;
+          return site;
+        }
+      } catch (e) {}
+
       return null;
     }
 
@@ -178,19 +203,33 @@
       try {
         const response = await fetch(GITHUB_API_URL);
         if (response.ok) {
-          const files = await response.json();
-          if (Array.isArray(files)) {
-            for (const file of files) {
-              if (file.name && file.name.endsWith('.html')) {
-                const baseName = file.name.slice(0, -5);
+          const items = await response.json();
+          if (Array.isArray(items)) {
+            for (const item of items) {
+              // Вариант 1: Одиночный .html файл в папке sites
+              if (item.type === 'file' && item.name.endsWith('.html')) {
+                const baseName = item.name.slice(0, -5);
                 const devName = `${baseName}.дев`;
-                const fetchUrl = file.download_url || `${RAW_BASE_URL}${file.name}`;
+                const fetchUrl = item.download_url || `${RAW_BASE_URL}${item.name}`;
                 try {
                   const siteRes = await fetch(fetchUrl);
                   if (siteRes.ok) {
                     const html = await siteRes.text();
-                    const site = extractMetadata(html, devName);
-                    loadedSites[devName] = site;
+                    loadedSites[devName] = extractMetadata(html, devName, RAW_BASE_URL);
+                  }
+                } catch (e) {}
+              } 
+              // Вариант 2: Папка с сайтом и его ассетами
+              else if (item.type === 'dir') {
+                const baseName = item.name;
+                const devName = `${baseName}.дев`;
+                const folderBaseUrl = `${RAW_BASE_URL}${baseName}/`;
+                const folderIndexUrl = `${folderBaseUrl}index.html`;
+                try {
+                  const siteRes = await fetch(folderIndexUrl);
+                  if (siteRes.ok) {
+                    const html = await siteRes.text();
+                    loadedSites[devName] = extractMetadata(html, devName, folderBaseUrl);
                   }
                 } catch (e) {}
               }
