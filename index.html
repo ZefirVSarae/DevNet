@@ -141,11 +141,12 @@
       let cleaned = q.trim();
       cleaned = cleaned.replace(/^devnet:\/\//i, '');
       if (cleaned.endsWith('.html')) {
-        cleaned = cleaned.slice(0, -5) + '.дев';
-      } else if (!cleaned.endsWith('.дев')) {
-        cleaned = cleaned + '.дев';
+        cleaned = cleaned.slice(0, -5);
       }
-      return cleaned;
+      if (cleaned.endsWith('.дев')) {
+        cleaned = cleaned.slice(0, -4);
+      }
+      return `${cleaned}.дев`;
     }
 
     async function fetchSiteByPath(rawQuery) {
@@ -226,13 +227,14 @@
       if (!queryTokens.length) return 0;
 
       let score = 0;
-      const lowerQuery = query.toLowerCase().trim();
+      const lowerQuery = query.toLowerCase().trim().replace(/^devnet:\/\//i, '');
       const lowerDevName = devName.toLowerCase();
       const lowerTitle = site.title.toLowerCase();
       const lowerDesc = site.description.toLowerCase();
       const lowerFullText = site.fullText.toLowerCase();
 
-      if (lowerDevName === lowerQuery || lowerDevName === cleanQueryToDevName(lowerQuery)) {
+      // Точные совпадения по домену и названию
+      if (lowerDevName === lowerQuery || lowerDevName === `${lowerQuery}.дев`) {
         score += 1000;
       }
       if (lowerTitle === lowerQuery) score += 500;
@@ -267,7 +269,7 @@
 
         let textOccurrences = 0;
         textTokens.forEach(txtToken => {
-          if (txtToken === qToken || txtToken.includes(txtToken)) textOccurrences++;
+          if (txtToken === qToken || txtToken.includes(qToken)) textOccurrences++;
         });
         score += Math.min(textOccurrences * 5, 50);
       });
